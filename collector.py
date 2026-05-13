@@ -205,59 +205,40 @@ def build_html_report(articles: list, report_date: str) -> str:
     for a in articles:
         ministry_groups.setdefault(a.ministry, []).append(a)
 
-    rows_html = ""
+    body_html = ""
     if not articles:
-        rows_html = '<p style="color:#888;">本日は対象キーワードに合致する情報は見つかりませんでした。</p>'
+        body_html = '<p style="color:#888;">本日は対象キーワードに合致する情報は見つかりませんでした。</p>'
     else:
         for ministry, items in ministry_groups.items():
-            rows_html += f"""
-            <h2 style="color:#1a5276;border-bottom:2px solid #1a5276;padding-bottom:4px;">
-                {ministry}（{len(items)} 件）
-            </h2>
-            <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
-                <thead>
-                    <tr style="background:#1a5276;color:#fff;">
-                        <th style="padding:8px;text-align:left;width:120px;">日付</th>
-                        <th style="padding:8px;text-align:left;">タイトル</th>
-                        <th style="padding:8px;text-align:left;width:220px;">マッチキーワード</th>
-                    </tr>
-                </thead>
-                <tbody>
-            """
-            for i, item in enumerate(items):
-                bg = "#f2f3f4" if i % 2 == 0 else "#ffffff"
+            body_html += f'<h2 style="color:#1a5276;border-bottom:2px solid #1a5276;padding-bottom:4px;font-size:16px;margin:24px 0 12px;">{ministry}（{len(items)} 件）</h2>'
+            for item in items:
                 kw_badges = " ".join(
-                    f'<span style="background:#d5e8d4;color:#274e13;border-radius:3px;'
-                    f'padding:1px 6px;font-size:11px;margin:1px;">{kw}</span>'
+                    f'<span style="display:inline-block;background:#d5e8d4;color:#274e13;border-radius:3px;'
+                    f'padding:2px 7px;font-size:11px;margin:2px 2px 2px 0;">{kw}</span>'
                     for kw in item.matched_keywords[:5]
                 )
-                rows_html += f"""
-                    <tr style="background:{bg};">
-                        <td style="padding:8px;font-size:13px;color:#555;">{item.date_str or "—"}</td>
-                        <td style="padding:8px;">
-                            <a href="{item.url}" style="color:#1a5276;">{item.title}</a>
-                        </td>
-                        <td style="padding:8px;">{kw_badges}</td>
-                    </tr>
-                """
-            rows_html += "</tbody></table>"
+                body_html += f"""
+<div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:12px 14px;margin-bottom:10px;">
+  <div style="font-size:11px;color:#888;margin-bottom:4px;">{item.date_str or "—"}</div>
+  <div style="margin-bottom:6px;"><a href="{item.url}" style="color:#1a5276;font-size:14px;line-height:1.5;">{item.title}</a></div>
+  <div>{kw_badges}</div>
+</div>"""
 
     total = len(articles)
     return f"""<!DOCTYPE html>
 <html lang="ja">
-<head><meta charset="UTF-8"><title>政府省庁 環境・廃棄物関連ニュース {report_date}</title></head>
-<body style="font-family:'Hiragino Kaku Gothic Pro',Meiryo,sans-serif;max-width:960px;margin:auto;padding:24px;color:#333;">
-    <div style="background:#1a5276;color:#fff;padding:20px 24px;border-radius:6px;margin-bottom:28px;">
-        <h1 style="margin:0;font-size:22px;">政府省庁 環境・廃棄物・脱炭素 最新情報</h1>
-        <p style="margin:6px 0 0;font-size:14px;">収集日時: {report_date} / 総件数: {total} 件</p>
-    </div>
-    <div style="background:#eaf4fb;border-left:4px solid #1a5276;padding:12px 16px;margin-bottom:24px;font-size:13px;">
-        <strong>収集対象:</strong> 環境省・経済産業省・国土交通省・農林水産省・内閣府<br>
-        <strong>対象キーワード:</strong> 廃棄物・リサイクル・脱炭素・CO2・Scope・温室効果ガス 等
-    </div>
-    {rows_html}
-    <hr style="margin-top:40px;">
-    <p style="font-size:11px;color:#aaa;text-align:center;">このメールは自動生成されています。各省庁公式サイトで最新情報をご確認ください。</p>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>政府省庁 環境・廃棄物関連ニュース {report_date}</title>
+</head>
+<body style="font-family:'Hiragino Kaku Gothic Pro',Meiryo,sans-serif;max-width:680px;margin:auto;padding:16px;color:#333;font-size:14px;">
+  <div style="background:#1a5276;color:#fff;padding:16px;border-radius:6px;margin-bottom:20px;">
+    <div style="font-size:17px;font-weight:bold;margin-bottom:4px;">政府省庁 環境・廃棄物・脱炭素 最新情報</div>
+    <div style="font-size:12px;">{report_date} ／ {total} 件</div>
+  </div>
+  {body_html}
+  <p style="font-size:11px;color:#aaa;text-align:center;margin-top:32px;">このメールは自動生成されています。各省庁公式サイトで最新情報をご確認ください。</p>
 </body>
 </html>"""
 
