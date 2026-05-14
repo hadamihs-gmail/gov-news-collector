@@ -51,6 +51,7 @@ SOURCES = [
         "encoding": "utf-8",
         "item_selector": "li",
         "link_base": "https://www.env.go.jp",
+        "link_path_prefix": "/press/",
     },
     {
         "name": "経済産業省",
@@ -58,6 +59,7 @@ SOURCES = [
         "encoding": "utf-8",
         "item_selector": "li",
         "link_base": "https://www.meti.go.jp",
+        "link_path_prefix": "/press/",
     },
     {
         "name": "国土交通省",
@@ -65,6 +67,7 @@ SOURCES = [
         "encoding": "utf-8",
         "item_selector": "li",
         "link_base": "https://www.mlit.go.jp",
+        "link_path_prefix": "/report/press/",
     },
     {
         "name": "農林水産省",
@@ -72,6 +75,7 @@ SOURCES = [
         "encoding": "utf-8",
         "item_selector": "li",
         "link_base": "https://www.maff.go.jp",
+        "link_path_prefix": "/j/press/",
     },
     {
         "name": "内閣府",
@@ -79,6 +83,7 @@ SOURCES = [
         "encoding": "utf-8",
         "item_selector": "li",
         "link_base": "https://www.cao.go.jp",
+        "link_path_prefix": "/press/",
     },
 ]
 
@@ -160,10 +165,17 @@ def extract_articles(soup: BeautifulSoup, source: dict) -> list:
 
         if href.startswith("http"):
             full_url = href
+            path = href.replace(source["link_base"], "")
         elif href.startswith("/"):
             full_url = source["link_base"] + href
+            path = href
         else:
             full_url = source["link_base"] + "/" + href
+            path = "/" + href
+
+        prefix = source.get("link_path_prefix")
+        if prefix and not path.startswith(prefix):
+            continue
 
         if full_url in seen_urls:
             continue
