@@ -16,6 +16,7 @@ import re
 
 import requests
 from bs4 import BeautifulSoup
+from supabase import create_client, Client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -100,6 +101,7 @@ class Article:
     url: str
     date_str: str = ""
     matched_keywords: list = field(default_factory=list)
+    seen_count: int = 1
 
 
 # ---------------------------------------------------------------------------
@@ -200,31 +202,49 @@ def collect_all() -> list:
 # レポート生成
 # ---------------------------------------------------------------------------
 
-def build_html_report(articles: list, report_date: str) -> str:
+def _article_cards(items: list, show_count: bool = False) -> str:
+    html = ""
     ministry_groups: dict = {}
-    for a in articles:
+    for a in items:
         ministry_groups.setdefault(a.ministry, []).append(a)
-
-    body_html = ""
-    if not articles:
-        body_html = '<p style="color:#888;">本日は対象キーワードに合致する情報は見つかりませんでした。</p>'
-    else:
-        for ministry, items in ministry_groups.items():
-            body_html += f'<h2 style="color:#1a5276;border-bottom:2px solid #1a5276;padding-bottom:4px;font-size:16px;margin:24px 0 12px;">{ministry}（{len(items)} 件）</h2>'
-            for item in items:
-                kw_badges = " ".join(
-                    f'<span style="display:inline-block;background:#d5e8d4;color:#274e13;border-radius:3px;'
-                    f'padding:2px 7px;font-size:11px;margin:2px 2px 2px 0;">{kw}</span>'
-                    for kw in item.matched_keywords[:5]
-                )
-                body_html += f"""
+    for ministry, group in ministry_groups.items():
+        html += f'<h2 style="color:#1a5276;border-bottom:2px solid #1a5276;padding-bottom:4px;font-size:16px;margin:24px 0 12px;">{ministry}（{len(group)} 件）</h2>'
+        for item in group:
+            kw_badges = " ".join(
+                f'<span style="display:inline-block;background:#d5e8d4;color:#274e13;border-radius:3px;'
+                f'padding:2px 7px;font-size:11px;margin:2px 2px 2px 0;">{kw}</span>'
+                for kw in item.matched_keywords[:5]
+            )
+            count_badge = (
+                f'<span style="display:inline-block;background:#f0e0d6;color:#7e3c00;border-radius:3px;'
+                f'padding:2px 7px;font-size:11px;margin-bottom:4px;">過去{item.seen_count}回掲載</span> '
+                if show_count else ""
+            )
+            html += f"""
 <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:12px 14px;margin-bottom:10px;">
   <div style="font-size:11px;color:#888;margin-bottom:4px;">{item.date_str or "—"}</div>
-  <div style="margin-bottom:6px;"><a href="{item.url}" style="color:#1a5276;font-size:14px;line-height:1.5;">{item.title}</a></div>
+  <div style="margin-bottom:6px;">{count_badge}<a href="{item.url}" style="color:#1a5276;font-size:14px;line-height:1.5;">{item.title}</a></div>
   <div>{kw_badges}</div>
 </div>"""
+    return html
 
-    total = len(articles)
+
+def build_html_report(articles: list, report_date: str, new_articles: list = None, duplicate_articles: list = None) -> str:
+    use_db = new_articles is not None
+
+    if use_db:
+        new_html = _article_cards(new_articles) if new_articles else '<p style="color:#888;">本日の新着情報はありませんでした。</p>'
+        dup_html = _article_cards(duplicate_articles, show_count=True) if duplicate_articles else '<p style="color:#888;">重複なし</p>'
+        body_html = f"""
+<h1 style="font-size:15px;color:#1a5276;margin:0 0 12px;">🆕 新着情報（{len(new_articles)} 件）</h1>
+{new_html}
+<h1 style="font-size:15px;color:#856404;margin:24px 0 12px;border-top:1px solid #ddd;padding-top:20px;">🔁 既出情報（{len(duplicate_articles)} 件）</h1>
+{dup_html}"""
+        total = len(new_articles) + len(duplicate_articles)
+    else:
+        body_html = _article_cards(articles) if articles else '<p style="color:#888;">本日は対象キーワードに合致する情報は見つかりませんでした。</p>'
+        total = len(articles)
+
     return f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -270,6 +290,54 @@ def build_text_report(articles: list, report_date: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Supabase連携
+# ---------------------------------------------------------------------------
+
+def get_supabase_client() -> Optional[Client]:
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_ANON_KEY")
+    if not url or not key:
+        return None
+    return create_client(url, key)
+
+
+def sync_articles_with_db(articles: list, client: Client) -> tuple[list, list]:
+    """新規記事と重複記事に分類してDBを更新する。新規・重複のリストを返す。"""
+    new_articles = []
+    duplicate_articles = []
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    for article in articles:
+        resp = client.table("articles").select("id,seen_count").eq("url", article.url).execute()
+        if resp.data:
+            row = resp.data[0]
+            new_count = row["seen_count"] + 1
+            client.table("articles").update({
+                "last_seen_at": today,
+                "seen_count": new_count,
+                "title": article.title,
+                "matched_keywords": article.matched_keywords,
+            }).eq("id", row["id"]).execute()
+            article.seen_count = new_count
+            duplicate_articles.append(article)
+        else:
+            client.table("articles").insert({
+                "url": article.url,
+                "title": article.title,
+                "ministry": article.ministry,
+                "date_str": article.date_str,
+                "matched_keywords": article.matched_keywords,
+                "first_seen_at": today,
+                "last_seen_at": today,
+                "seen_count": 1,
+            }).execute()
+            article.seen_count = 1
+            new_articles.append(article)
+
+    return new_articles, duplicate_articles
+
+
+# ---------------------------------------------------------------------------
 # メール送信
 # ---------------------------------------------------------------------------
 
@@ -312,8 +380,17 @@ def main() -> None:
     articles = collect_all()
     logger.info(f"合計 {len(articles)} 件取得")
 
-    html_body = build_html_report(articles, report_date)
-    text_body = build_text_report(articles, report_date)
+    db = get_supabase_client()
+    if db:
+        logger.info("Supabase連携: 新規・重複を分類中")
+        new_articles, duplicate_articles = sync_articles_with_db(articles, db)
+        logger.info(f"新規: {len(new_articles)} 件 / 重複: {len(duplicate_articles)} 件")
+        html_body = build_html_report(articles, report_date, new_articles, duplicate_articles)
+        text_body = build_text_report(new_articles, report_date)
+    else:
+        logger.warning("Supabase未設定: 全件をレポート")
+        html_body = build_html_report(articles, report_date)
+        text_body = build_text_report(articles, report_date)
 
     report_path = f"report_{now.strftime('%Y%m%d')}.html"
     with open(report_path, "w", encoding="utf-8") as f:
