@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>省庁ニュース検索</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Hiragino Kaku Gothic Pro', Meiryo, sans-serif; background: #f4f6f8; color: #333; }
+  header { background: #1a5276; color: #fff; padding: 16px 20px; }
+  header h1 { font-size: 18px; font-weight: bold; }
+  header p { font-size: 12px; margin-top: 4px; opacity: 0.8; }
+  .filters { background: #fff; padding: 14px 20px; border-bottom: 1px solid #e0e0e0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .filters input, .filters select { border: 1px solid #ccc; border-radius: 4px; padding: 7px 10px; font-size: 13px; }
+  .filters input[type="text"] { flex: 1; min-width: 180px; }
+  .filters select { min-width: 130px; }
+  .filters input[type="date"] { min-width: 130px; }
+  .count { font-size: 12px; color: #666; white-space: nowrap; }
+  .container { max-width: 860px; margin: 0 auto; padding: 16px; }
+  .card { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 14px 16px; margin-bottom: 10px; }
+  .card-meta { font-size: 11px; color: #888; margin-bottom: 5px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .card-title a { color: #1a5276; font-size: 14px; line-height: 1.5; text-decoration: none; }
+  .card-title a:hover { text-decoration: underline; }
+  .card-tags { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag { background: #d5e8d4; color: #274e13; border-radius: 3px; padding: 2px 7px; font-size: 11px; }
+  .tag-ministry { background: #dae8fc; color: #1a3a6b; }
+  .tag-count { background: #f0e0d6; color: #7e3c00; }
+  .empty { text-align: center; color: #888; padding: 48px 0; font-size: 14px; }
+  .loading { text-align: center; color: #888; padding: 48px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>政府省庁 環境・廃棄物・脱炭素 ニュース検索</h1>
+  <p>環境省・経済産業省・国土交通省・農林水産省・内閣府</p>
+</header>
+
+<div class="filters">
+  <input type="text" id="q" placeholder="キーワードで検索…" oninput="render()">
+  <select id="ministry" onchange="render()">
+    <option value="">すべての省庁</option>
+    <option>環境省</option>
+    <option>経済産業省</option>
+    <option>国土交通省</option>
+    <option>農林水産省</option>
+    <option>内閣府</option>
+  </select>
+  <input type="date" id="date_from" onchange="render()">
+  <span style="font-size:12px;color:#666;">〜</span>
+  <input type="date" id="date_to" onchange="render()">
+  <span class="count" id="count"></span>
+</div>
+
+<div class="container">
+  <div class="loading" id="loading">読み込み中…</div>
+  <div id="results"></div>
+</div>
+
+<script>
+const SUPABASE_URL = document.currentScript ? '' : '';
+const SUPABASE_ANON_KEY = '';
+
+// config.js から読み込む
+</script>
+<script src="config.js"></script>
+<script>
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let allArticles = [];
+
+async function load() {
+  const { data, error } = await sb
+    .from('articles')
+    .select('*')
+    .order('first_seen_at', { ascending: false })
+    .limit(2000);
+  if (error) {
+    document.getElementById('loading').textContent = '読み込みに失敗しました: ' + error.message;
+    return;
+  }
+  allArticles = data;
+  document.getElementById('loading').style.display = 'none';
+  render();
+}
+
+function render() {
+  const q = document.getElementById('q').value.toLowerCase();
+  const ministry = document.getElementById('ministry').value;
+  const dateFrom = document.getElementById('date_from').value;
+  const dateTo = document.getElementById('date_to').value;
+
+  const filtered = allArticles.filter(a => {
+    if (ministry && a.ministry !== ministry) return false;
+    if (dateFrom && a.first_seen_at < dateFrom) return false;
+    if (dateTo && a.first_seen_at > dateTo) return false;
+    if (q && !a.title.toLowerCase().includes(q) &&
+        !(a.matched_keywords || []).join(' ').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  document.getElementById('count').textContent = `${filtered.length} 件`;
+
+  const html = filtered.map(a => {
+    const kws = (a.matched_keywords || []).slice(0, 5)
+      .map(k => `<span class="tag">${k}</span>`).join('');
+    const countBadge = a.seen_count > 1
+      ? `<span class="tag tag-count">${a.seen_count}回掲載</span>` : '';
+    return `
+<div class="card">
+  <div class="card-meta">
+    <span class="tag tag-ministry">${a.ministry}</span>
+    <span>${a.first_seen_at || ''}</span>
+    ${a.date_str ? `<span>${a.date_str}</span>` : ''}
+  </div>
+  <div class="card-title"><a href="${a.url}" target="_blank">${a.title}</a></div>
+  <div class="card-tags">${countBadge}${kws}</div>
+</div>`;
+  }).join('');
+
+  document.getElementById('results').innerHTML = filtered.length
+    ? html
+    : '<div class="empty">該当する記事が見つかりませんでした。</div>';
+}
+
+load();
+</script>
+</body>
+</html>
