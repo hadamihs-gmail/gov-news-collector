@@ -307,7 +307,7 @@ def build_text_report(articles: list, report_date: str) -> str:
 
 def get_supabase_client() -> Optional[Client]:
     url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_ANON_KEY")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not key:
         return None
     return create_client(url, key)
