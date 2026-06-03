@@ -350,6 +350,49 @@ def sync_articles_with_db(articles: list, client: Client) -> tuple[list, list]:
 
 
 # ---------------------------------------------------------------------------
+# LINE通知
+# ---------------------------------------------------------------------------
+
+def send_line_notification(new_articles: list, report_date: str) -> None:
+    token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    user_id = os.environ.get("LINE_USER_ID")
+    if not token or not user_id:
+        return
+
+    if not new_articles:
+        return
+
+    ministry_groups: dict = {}
+    for a in new_articles:
+        ministry_groups.setdefault(a.ministry, []).append(a)
+
+    lines = [f"【省庁ニュース新着】{report_date}", f"新着 {len(new_articles)} 件\n"]
+    for ministry, items in ministry_groups.items():
+        lines.append(f"■ {ministry}（{len(items)}件）")
+        for item in items[:3]:
+            lines.append(f"・{item.title}")
+        if len(items) > 3:
+            lines.append(f"  他{len(items) - 3}件")
+    lines.append(f"\n🔍 検索アプリ: https://hadamihs-gmail.github.io/gov-news-collector/")
+
+    message = "\n".join(lines)
+    try:
+        resp = requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={"to": user_id, "messages": [{"type": "text", "text": message}]},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        logger.info("LINE通知送信完了")
+    except Exception as e:
+        logger.warning(f"LINE通知失敗: {e}")
+
+
+# ---------------------------------------------------------------------------
 # メール送信
 # ---------------------------------------------------------------------------
 
@@ -399,6 +442,7 @@ def main() -> None:
         logger.info(f"新規: {len(new_articles)} 件 / 重複: {len(duplicate_articles)} 件")
         html_body = build_html_report(articles, report_date, new_articles, duplicate_articles)
         text_body = build_text_report(new_articles, report_date)
+        send_line_notification(new_articles, report_date)
     else:
         logger.warning("Supabase未設定: 全件をレポート")
         html_body = build_html_report(articles, report_date)
